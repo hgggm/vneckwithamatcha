@@ -1,0 +1,744 @@
+-- // PlayerFollowGUI + CONNECT + BAG + TELEPORT + RESET + VIEW + ABUSE SPAWN + AUTO STOMP + ROTATION (0.5 Steps)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Camera = workspace.CurrentCamera
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    Character = newChar
+    RootPart = newChar:WaitForChild("HumanoidRootPart")
+end)
+
+local connected = false
+local targetRoot = nil
+local selectedPlayer = nil
+
+-- Offset & Rotation
+local offsetX, offsetY, offsetZ = 0, 0, 0
+local rotYaw, rotPitch, rotRoll = 0, 0, 0
+
+local viewConnection = nil
+
+-- Abuse Spawn state
+local abuseSpawnEnabled = false
+local abuseSpawnDelay = 2
+
+-- Auto Stomp state
+local autoStompEnabled = false
+local stompConnection = nil
+
+-- ─────────────────────────────────────────────
+-- GUI SETUP
+-- ─────────────────────────────────────────────
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PlayerFollowUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = game:GetService("CoreGui")
+
+local shadow = Instance.new("Frame")
+shadow.Size = UDim2.new(0, 264, 0, 950)
+shadow.Position = UDim2.new(0, 54, 0, 54)
+shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+shadow.BackgroundTransparency = 0.55
+shadow.BorderSizePixel = 0
+shadow.ZIndex = 0
+shadow.Parent = screenGui
+Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 12)
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 260, 0, 946)
+frame.Position = UDim2.new(0, 50, 0, 50)
+frame.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+frame.BorderSizePixel = 0
+frame.ZIndex = 1
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local accentBar = Instance.new("Frame")
+accentBar.Size = UDim2.new(1, 0, 0, 3)
+accentBar.Position = UDim2.new(0, 0, 0, 0)
+accentBar.BackgroundColor3 = Color3.fromRGB(90, 130, 255)
+accentBar.BorderSizePixel = 0
+accentBar.ZIndex = 2
+accentBar.Parent = frame
+Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0, 12)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -16, 0, 36)
+title.Position = UDim2.new(0, 14, 0, 10)
+title.BackgroundTransparency = 1
+title.Text = "⬡  PLAYER FOLLOW"
+title.TextColor3 = Color3.fromRGB(230, 230, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 2
+title.Parent = frame
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -16, 0, 16)
+statusLabel.Position = UDim2.new(0, 14, 0, 46)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "No player selected"
+statusLabel.TextColor3 = Color3.fromRGB(100, 105, 145)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 11
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.ZIndex = 2
+statusLabel.Parent = frame
+
+local function makeDivider(posY)
+    local d = Instance.new("Frame")
+    d.Size = UDim2.new(1, -24, 0, 1)
+    d.Position = UDim2.new(0, 12, 0, posY)
+    d.BackgroundColor3 = Color3.fromRGB(35, 37, 55)
+    d.BorderSizePixel = 0
+    d.ZIndex = 2
+    d.Parent = frame
+end
+
+local function makeSectionLabel(text, posY)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -24, 0, 16)
+    lbl.Position = UDim2.new(0, 12, 0, posY)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(90, 130, 255)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 2
+    lbl.Parent = frame
+end
+
+makeDivider(68)
+makeSectionLabel("PLAYERS", 74)
+
+local scrollFrame = Instance.new("Frame")
+scrollFrame.Size = UDim2.new(1, -24, 0, 118)
+scrollFrame.Position = UDim2.new(0, 12, 0, 93)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ZIndex = 2
+scrollFrame.ClipsDescendants = true
+scrollFrame.Parent = frame
+Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
+
+local scrollingFrame = Instance.new("ScrollingFrame")
+scrollingFrame.Size = UDim2.new(1, 0, 1, 0)
+scrollingFrame.BackgroundTransparency = 1
+scrollingFrame.BorderSizePixel = 0
+scrollingFrame.ScrollBarThickness = 3
+scrollingFrame.ScrollBarImageColor3 = Color3.fromRGB(90, 130, 255)
+scrollingFrame.ZIndex = 3
+scrollingFrame.Parent = scrollFrame
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Padding = UDim.new(0, 4)
+uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+uiListLayout.Parent = scrollingFrame
+
+local listPadding = Instance.new("UIPadding")
+listPadding.PaddingTop = UDim.new(0, 4)
+listPadding.PaddingLeft = UDim.new(0, 4)
+listPadding.PaddingRight = UDim.new(0, 4)
+listPadding.Parent = scrollingFrame
+
+makeDivider(218)
+makeSectionLabel("OFFSET", 224)
+
+-- Improved Slider with 0.5 Step
+local function createSlider(axisName, minVal, maxVal, defaultVal, posY, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -24, 0, 44)
+    container.Position = UDim2.new(0, 12, 0, posY)
+    container.BackgroundTransparency = 1
+    container.ZIndex = 2
+    container.Parent = frame
+
+    local rowLabel = Instance.new("TextLabel")
+    rowLabel.Size = UDim2.new(0, 20, 0, 16)
+    rowLabel.BackgroundTransparency = 1
+    rowLabel.Text = axisName
+    rowLabel.TextColor3 = Color3.fromRGB(160, 165, 205)
+    rowLabel.Font = Enum.Font.GothamBold
+    rowLabel.TextSize = 11
+    rowLabel.ZIndex = 3
+    rowLabel.Parent = container
+
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0, 50, 0, 16)
+    valueLabel.Position = UDim2.new(1, -50, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Text = string.format("%.1f", defaultVal)
+    valueLabel.TextColor3 = Color3.fromRGB(90, 130, 255)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.TextSize = 11
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.ZIndex = 3
+    valueLabel.Parent = container
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, 0, 0, 6)
+    track.Position = UDim2.new(0, 0, 0, 26)
+    track.BackgroundColor3 = Color3.fromRGB(35, 37, 55)
+    track.BorderSizePixel = 0
+    track.ZIndex = 3
+    track.Parent = container
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0.5, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(90, 130, 255)
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 4
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(0.5, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.fromRGB(240, 242, 255)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 5
+    knob.Parent = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local currentValue = defaultVal
+    local dragging = false
+
+    local function updateSlider(rawX)
+        local relX = math.clamp(rawX - track.AbsolutePosition.X, 0, track.AbsoluteSize.X)
+        local pct = relX / track.AbsoluteSize.X
+        local raw = minVal + pct * (maxVal - minVal)
+        -- Snap to 0.5 increments
+        currentValue = math.floor(raw * 2 + 0.5) / 2
+        local snappedPct = (currentValue - minVal) / (maxVal - minVal)
+        fill.Size = UDim2.new(snappedPct, 0, 1, 0)
+        knob.Position = UDim2.new(snappedPct, 0, 0.5, 0)
+        valueLabel.Text = string.format("%.1f", currentValue)
+        if callback then callback(currentValue) end
+    end
+
+    local hitbox = Instance.new("TextButton")
+    hitbox.Size = UDim2.new(1, 0, 0, 22)
+    hitbox.Position = UDim2.new(0, 0, 0, -8)
+    hitbox.BackgroundTransparency = 1
+    hitbox.Text = ""
+    hitbox.ZIndex = 6
+    hitbox.Parent = track
+
+    hitbox.MouseButton1Down:Connect(function(x) dragging = true updateSlider(x) end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateSlider(input.Position.X)
+        end
+    end)
+end
+
+-- Position Offsets (0.5 steps)
+createSlider("X", -10, 10, 0, 245, function(v) offsetX = v end)
+createSlider("Y", -10, 10, 0, 295, function(v) offsetY = v end)
+createSlider("Z", -10, 10, 0, 345, function(v) offsetZ = v end)
+
+makeDivider(396)
+makeSectionLabel("ROTATION (Yaw / Pitch / Roll)", 402)
+
+-- Rotation Sliders (0.5 steps)
+createSlider("Yaw",   -180, 180, 0, 428, function(v) rotYaw   = v end)
+createSlider("Pitch",  -90,   90, 0, 478, function(v) rotPitch = v end)
+createSlider("Roll",  -180, 180, 0, 528, function(v) rotRoll  = v end)
+
+makeDivider(584)
+makeSectionLabel("ACTIONS", 590)
+
+local function makeButton(labelText, posY, r, g, b)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -24, 0, 34)
+    btn.Position = UDim2.new(0, 12, 0, posY)
+    btn.Text = labelText
+    btn.BackgroundColor3 = Color3.fromRGB(r, g, b)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.BorderSizePixel = 0
+    btn.ZIndex = 2
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {
+            BackgroundColor3 = Color3.fromRGB(math.min(r+25,255), math.min(g+25,255), math.min(b+25,255))
+        }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {
+            BackgroundColor3 = Color3.fromRGB(r, g, b)
+        }):Play()
+    end)
+    return btn
+end
+
+local toggleButton     = makeButton("CONNECT",              616, 28,  155, 80)
+local bagConnectButton = makeButton("CONNECT + BAG",        658, 190, 110, 35)
+local teleportButton   = makeButton("TELEPORT TO PLAYER",   700, 80,  60,  180)
+local viewButton       = makeButton("VIEW PLAYER",          742, 60,  120, 180)
+local resetButton      = makeButton("FORCE RESET",          784, 160, 30,  30)
+local autoStompButton  = makeButton("AUTO STOMP: OFF",      826, 200, 60,  60)
+
+-- Abuse Spawn Section
+makeDivider(870)
+makeSectionLabel("ABUSE SPAWN", 876)
+
+local abuseSpawnButton = makeButton("ABUSE SPAWN: OFF", 892, 100, 40, 140)
+
+-- Delay Slider (still whole seconds)
+local delayContainer = Instance.new("Frame")
+delayContainer.Size = UDim2.new(1, -24, 0, 44)
+delayContainer.Position = UDim2.new(0, 12, 0, 936)
+delayContainer.BackgroundTransparency = 1
+delayContainer.ZIndex = 2
+delayContainer.Parent = frame
+
+local delayAxisLabel = Instance.new("TextLabel")
+delayAxisLabel.Size = UDim2.new(0, 80, 0, 16)
+delayAxisLabel.BackgroundTransparency = 1
+delayAxisLabel.Text = "DELAY (s)"
+delayAxisLabel.TextColor3 = Color3.fromRGB(160, 165, 205)
+delayAxisLabel.Font = Enum.Font.GothamBold
+delayAxisLabel.TextSize = 11
+delayAxisLabel.ZIndex = 3
+delayAxisLabel.Parent = delayContainer
+
+local delayValueLabel = Instance.new("TextLabel")
+delayValueLabel.Size = UDim2.new(0, 50, 0, 16)
+delayValueLabel.Position = UDim2.new(1, -50, 0, 0)
+delayValueLabel.BackgroundTransparency = 1
+delayValueLabel.Text = tostring(abuseSpawnDelay)
+delayValueLabel.TextColor3 = Color3.fromRGB(90, 130, 255)
+delayValueLabel.Font = Enum.Font.GothamBold
+delayValueLabel.TextSize = 11
+delayValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+delayValueLabel.ZIndex = 3
+delayValueLabel.Parent = delayContainer
+
+local delayTrack = Instance.new("Frame")
+delayTrack.Size = UDim2.new(1, 0, 0, 6)
+delayTrack.Position = UDim2.new(0, 0, 0, 26)
+delayTrack.BackgroundColor3 = Color3.fromRGB(35, 37, 55)
+delayTrack.BorderSizePixel = 0
+delayTrack.ZIndex = 3
+delayTrack.Parent = delayContainer
+Instance.new("UICorner", delayTrack).CornerRadius = UDim.new(1, 0)
+
+local delayFill = Instance.new("Frame")
+delayFill.Size = UDim2.new(abuseSpawnDelay / 10, 0, 1, 0)
+delayFill.BackgroundColor3 = Color3.fromRGB(90, 130, 255)
+delayFill.BorderSizePixel = 0
+delayFill.ZIndex = 4
+delayFill.Parent = delayTrack
+Instance.new("UICorner", delayFill).CornerRadius = UDim.new(1, 0)
+
+local delayKnob = Instance.new("Frame")
+delayKnob.Size = UDim2.new(0, 14, 0, 14)
+delayKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+delayKnob.Position = UDim2.new(abuseSpawnDelay / 10, 0, 0.5, 0)
+delayKnob.BackgroundColor3 = Color3.fromRGB(240, 242, 255)
+delayKnob.BorderSizePixel = 0
+delayKnob.ZIndex = 5
+delayKnob.Parent = delayTrack
+Instance.new("UICorner", delayKnob).CornerRadius = UDim.new(1, 0)
+
+local delayDragging = false
+
+local function updateDelaySlider(rawX)
+    local relX = math.clamp(rawX - delayTrack.AbsolutePosition.X, 0, delayTrack.AbsoluteSize.X)
+    local pct = relX / delayTrack.AbsoluteSize.X
+    abuseSpawnDelay = math.floor(pct * 10 + 0.5)
+    delayFill.Size = UDim2.new(abuseSpawnDelay / 10, 0, 1, 0)
+    delayKnob.Position = UDim2.new(abuseSpawnDelay / 10, 0, 0.5, 0)
+    delayValueLabel.Text = tostring(abuseSpawnDelay)
+end
+
+local delayHitbox = Instance.new("TextButton")
+delayHitbox.Size = UDim2.new(1, 0, 0, 22)
+delayHitbox.Position = UDim2.new(0, 0, 0, -8)
+delayHitbox.BackgroundTransparency = 1
+delayHitbox.Text = ""
+delayHitbox.ZIndex = 6
+delayHitbox.Parent = delayTrack
+
+delayHitbox.MouseButton1Down:Connect(function(x) delayDragging = true updateDelaySlider(x) end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then delayDragging = false end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if delayDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        updateDelaySlider(input.Position.X)
+    end
+end)
+
+-- ─────────────────────────────────────────────
+-- AUTO STOMP
+-- ─────────────────────────────────────────────
+autoStompButton.MouseButton1Click:Connect(function()
+    autoStompEnabled = not autoStompEnabled
+    if autoStompEnabled then
+        autoStompButton.Text = "AUTO STOMP: ON"
+        autoStompButton.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+        stompConnection = RunService.Heartbeat:Connect(function()
+            if not autoStompEnabled then return end
+            pcall(function()
+                ReplicatedStorage:WaitForChild("MainEvent"):FireServer("Stomp")
+            end)
+        end)
+    else
+        autoStompButton.Text = "AUTO STOMP: OFF"
+        autoStompButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        if stompConnection then stompConnection:Disconnect() stompConnection = nil end
+    end
+end)
+
+-- ─────────────────────────────────────────────
+-- ABUSE SPAWN LOGIC
+-- ─────────────────────────────────────────────
+local function hasForceField(char)
+    return char and char:FindFirstChildOfClass("ForceField") ~= nil
+end
+
+local function runSelfAbuseCycle()
+    if not abuseSpawnEnabled then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+
+    if not hasForceField(myChar) then
+        statusLabel.Text = "No ForceField detected → Force resetting now..."
+        local hum = myChar:FindFirstChildOfClass("Humanoid")
+        if hum then hum.Health = 0 else LocalPlayer:LoadCharacter() end
+        return
+    end
+
+    statusLabel.Text = "Waiting for your ForceField to disappear..."
+    while abuseSpawnEnabled and hasForceField(myChar) do task.wait(0.2) end
+    if not abuseSpawnEnabled then return end
+
+    statusLabel.Text = string.format("ForceField gone → waiting %ds then reset...", abuseSpawnDelay)
+    task.wait(abuseSpawnDelay)
+    if not abuseSpawnEnabled then return end
+
+    statusLabel.Text = "Force resetting character..."
+    local hum = myChar:FindFirstChildOfClass("Humanoid")
+    if hum then hum.Health = 0 else LocalPlayer:LoadCharacter() end
+end
+
+local abuseSpawnConnection = nil
+local function startAbuseSpawnListener()
+    if abuseSpawnConnection then abuseSpawnConnection:Disconnect() end
+    abuseSpawnConnection = LocalPlayer.CharacterAdded:Connect(function()
+        if abuseSpawnEnabled then
+            task.wait(0.3)
+            spawn(runSelfAbuseCycle)
+        end
+    end)
+end
+
+abuseSpawnButton.MouseButton1Click:Connect(function()
+    abuseSpawnEnabled = not abuseSpawnEnabled
+    if abuseSpawnEnabled then
+        abuseSpawnButton.Text = "ABUSE SPAWN: ON"
+        abuseSpawnButton.BackgroundColor3 = Color3.fromRGB(175, 38, 38)
+        statusLabel.Text = "Self spawn abuse ENABLED"
+        startAbuseSpawnListener()
+        if LocalPlayer.Character then spawn(runSelfAbuseCycle) end
+    else
+        abuseSpawnButton.Text = "ABUSE SPAWN: OFF"
+        abuseSpawnButton.BackgroundColor3 = Color3.fromRGB(100, 40, 140)
+        if abuseSpawnConnection then abuseSpawnConnection:Disconnect() abuseSpawnConnection = nil end
+        statusLabel.Text = "Self spawn abuse disabled"
+    end
+end)
+
+-- Player List (unchanged)
+local selectedBtn = nil
+local function updatePlayerList()
+    for _, child in ipairs(scrollingFrame:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
+    end
+    local count = 0
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        count += 1
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 28)
+        btn.BackgroundColor3 = Color3.fromRGB(28, 28, 40)
+        btn.TextColor3 = Color3.fromRGB(185, 190, 225)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        btn.Text = "  " .. player.Name
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 4
+        btn.Parent = scrollingFrame
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        btn.MouseButton1Click:Connect(function()
+            if selectedBtn then
+                TweenService:Create(selectedBtn, TweenInfo.new(0.1), {
+                    BackgroundColor3 = Color3.fromRGB(28, 28, 40),
+                    TextColor3 = Color3.fromRGB(185, 190, 225)
+                }):Play()
+            end
+            selectedBtn = btn
+            selectedPlayer = player
+            TweenService:Create(btn, TweenInfo.new(0.1), {
+                BackgroundColor3 = Color3.fromRGB(50, 85, 210),
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            }):Play()
+            statusLabel.Text = "Selected: " .. player.Name
+        end)
+    end
+    if count == 0 then
+        local emptyLabel = Instance.new("TextLabel")
+        emptyLabel.Size = UDim2.new(1, 0, 0, 28)
+        emptyLabel.BackgroundTransparency = 1
+        emptyLabel.Text = "No other players"
+        emptyLabel.TextColor3 = Color3.fromRGB(70, 75, 105)
+        emptyLabel.Font = Enum.Font.Gotham
+        emptyLabel.TextSize = 11
+        emptyLabel.ZIndex = 4
+        emptyLabel.Parent = scrollingFrame
+    end
+    scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y + 8)
+end
+
+updatePlayerList()
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(function(p)
+    if p == selectedPlayer then
+        selectedPlayer = nil
+        selectedBtn = nil
+        connected = false
+        abuseSpawnEnabled = false
+        abuseSpawnButton.Text = "ABUSE SPAWN: OFF"
+        abuseSpawnButton.BackgroundColor3 = Color3.fromRGB(100, 40, 140)
+        if abuseSpawnConnection then abuseSpawnConnection:Disconnect() abuseSpawnConnection = nil end
+        statusLabel.Text = "Player disconnected"
+        toggleButton.Text = "CONNECT"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(28, 155, 80)
+    end
+    updatePlayerList()
+end)
+
+-- Connect, Bag, Teleport, View, Reset (same as before)
+toggleButton.MouseButton1Click:Connect(function()
+    if connected then
+        connected = false
+        targetRoot = nil
+        toggleButton.Text = "CONNECT"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(28, 155, 80)
+        statusLabel.Text = selectedPlayer and ("Selected: " .. selectedPlayer.Name) or "No player selected"
+        sethiddenproperty(RootPart, "PhysicsRepRootPart", nil)
+    elseif selectedPlayer then
+        local char = selectedPlayer.Character
+        if char then
+            targetRoot = char:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                connected = true
+                toggleButton.Text = "DISCONNECT"
+                toggleButton.BackgroundColor3 = Color3.fromRGB(175, 38, 38)
+                statusLabel.Text = "Following: " .. selectedPlayer.Name
+            else
+                statusLabel.Text = "No HumanoidRootPart found"
+            end
+        else
+            statusLabel.Text = "Player has no character"
+        end
+    else
+        statusLabel.Text = "Select a player first!"
+    end
+end)
+
+bagConnectButton.MouseButton1Click:Connect(function()
+    if not selectedPlayer then statusLabel.Text = "Select a player first!" return end
+    local victimChar = selectedPlayer.Character
+    if not victimChar then return end
+    local victimRoot = victimChar:FindFirstChild("HumanoidRootPart")
+    if not victimRoot then return end
+
+    local originalCF = RootPart.CFrame
+    local ignored = workspace:FindFirstChild("Ignored")
+    if not ignored then return end
+    local shop = ignored:FindFirstChild("Shop")
+    if not shop then return end
+
+    local bagShop
+    for _, v in pairs(shop:GetChildren()) do
+        if string.find(v.Name, "BrownBag") then bagShop = v break end
+    end
+    if not bagShop then statusLabel.Text = "No BrownBag found" return end
+
+    local click = bagShop:FindFirstChildWhichIsA("ClickDetector", true)
+    local part = bagShop:FindFirstChildWhichIsA("BasePart", true)
+    if not click or not part then return end
+
+    RootPart.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+    task.wait(0.25)
+    fireclickdetector(click)
+    task.wait(0.3)
+
+    local tool
+    for i = 1, 60 do
+        tool = LocalPlayer.Backpack:FindFirstChild("[BrownBag]")
+        if tool then break end
+        task.wait(0.1)
+    end
+
+    if not tool then
+        statusLabel.Text = "No BrownBag acquired, returning..."
+        RootPart.CFrame = originalCF
+        return
+    end
+
+    Character.Humanoid:EquipTool(tool)
+    task.wait(0.2)
+
+    targetRoot = victimRoot
+    connected = true
+    toggleButton.Text = "DISCONNECT"
+    toggleButton.BackgroundColor3 = Color3.fromRGB(175, 38, 38)
+    statusLabel.Text = "Following & Bagging " .. selectedPlayer.Name
+
+    spawn(function()
+        while connected do
+            local currentTool = Character:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChild("[BrownBag]")
+            if currentTool then
+                pcall(function() currentTool:Activate() end)
+            else
+                connected = false
+                targetRoot = nil
+                statusLabel.Text = "Tool lost — returning..."
+                toggleButton.Text = "CONNECT"
+                toggleButton.BackgroundColor3 = Color3.fromRGB(28, 155, 80)
+                RootPart.CFrame = originalCF
+                break
+            end
+            task.wait(0.15)
+        end
+    end)
+end)
+
+teleportButton.MouseButton1Click:Connect(function()
+    if not selectedPlayer then statusLabel.Text = "Select a player first!" return end
+    local char = selectedPlayer.Character
+    if not char then statusLabel.Text = "Player has no character" return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then statusLabel.Text = "No HumanoidRootPart found" return end
+    RootPart.CFrame = root.CFrame * CFrame.new(0, 0, 2)
+    statusLabel.Text = "Teleported to " .. selectedPlayer.Name
+end)
+
+local viewing = false
+viewButton.MouseButton1Click:Connect(function()
+    if viewing then
+        viewing = false
+        if viewConnection then viewConnection:Disconnect() viewConnection = nil end
+        Camera.CameraType = Enum.CameraType.Custom
+        Camera.CameraSubject = Character:FindFirstChildOfClass("Humanoid")
+        viewButton.Text = "VIEW PLAYER"
+        viewButton.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+        statusLabel.Text = selectedPlayer and ("Selected: " .. selectedPlayer.Name) or "No player selected"
+    else
+        if not selectedPlayer then statusLabel.Text = "Select a player first!" return end
+        local char = selectedPlayer.Character
+        if not char then statusLabel.Text = "Player has no character" return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then statusLabel.Text = "No Humanoid found" return end
+
+        viewing = true
+        Camera.CameraType = Enum.CameraType.Custom
+        Camera.CameraSubject = humanoid
+        viewButton.Text = "STOP VIEWING"
+        viewButton.BackgroundColor3 = Color3.fromRGB(180, 100, 20)
+        statusLabel.Text = "Viewing: " .. selectedPlayer.Name
+
+        viewConnection = RunService.Heartbeat:Connect(function()
+            if not viewing then return end
+            local c = selectedPlayer.Character
+            if c then
+                local h = c:FindFirstChildOfClass("Humanoid")
+                if h and Camera.CameraSubject ~= h then
+                    Camera.CameraSubject = h
+                end
+            end
+        end)
+    end
+end)
+
+resetButton.MouseButton1Click:Connect(function()
+    connected = false
+    targetRoot = nil
+    if viewConnection then viewConnection:Disconnect() viewConnection = nil end
+    viewing = false
+    Camera.CameraType = Enum.CameraType.Custom
+
+    abuseSpawnEnabled = false
+    abuseSpawnButton.Text = "ABUSE SPAWN: OFF"
+    abuseSpawnButton.BackgroundColor3 = Color3.fromRGB(100, 40, 140)
+    if abuseSpawnConnection then abuseSpawnConnection:Disconnect() abuseSpawnConnection = nil end
+
+    autoStompEnabled = false
+    autoStompButton.Text = "AUTO STOMP: OFF"
+    autoStompButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    if stompConnection then stompConnection:Disconnect() stompConnection = nil end
+
+    toggleButton.Text = "CONNECT"
+    toggleButton.BackgroundColor3 = Color3.fromRGB(28, 155, 80)
+    viewButton.Text = "VIEW PLAYER"
+    viewButton.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+    statusLabel.Text = "Resetting..."
+
+    local humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid.Health = 0 end
+
+    LocalPlayer.CharacterAdded:Wait()
+    task.wait(0.5)
+    Camera.CameraSubject = Character:FindFirstChildOfClass("Humanoid")
+    statusLabel.Text = "Reset complete"
+end)
+
+-- ─────────────────────────────────────────────
+-- HEARTBEAT FOLLOW WITH ROTATION
+-- ─────────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    if not connected or not targetRoot then return end
+    if not targetRoot.Parent then
+        connected = false
+        statusLabel.Text = "Target lost"
+        toggleButton.Text = "CONNECT"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(28, 155, 80)
+        return
+    end
+
+    local baseCF = targetRoot.CFrame * CFrame.new(offsetX, offsetY, offsetZ)
+    local rotation = CFrame.fromEulerAnglesXYZ(math.rad(rotPitch), math.rad(rotYaw), math.rad(rotRoll))
+    local finalCF = baseCF * rotation
+
+    RootPart.CFrame = finalCF
+    RootPart.AssemblyLinearVelocity = Vector3.zero
+    RootPart.AssemblyAngularVelocity = Vector3.zero
+    sethiddenproperty(RootPart, "PhysicsRepRootPart", targetRoot)
+    sethiddenproperty(RootPart, "CFrame", finalCF)
+end)
